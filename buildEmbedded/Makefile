@@ -150,6 +150,7 @@ INCLUDE_DIRS-$(CONFIG_FREERTOS_PORT_ARM_CM4F)  += -I$(PROJ_ROOT_DIR)chaney.aculi
 INCLUDE_DIRS-y                                 += -I$(PROJ_ROOT_DIR)lwip-contrib/ports/cross/src/include/LM3S
 INCLUDE_DIRS-y                                 += -I$(PROJ_ROOT_DIR)lwip/src/include
 INCLUDE_DIRS-y                                 += -I$(PROJ_ROOT_DIR)lwip/src/include/ipv4
+INCLUDE_DIRS-y                                 += -I$(PROJ_ROOT_DIR)lwip/src/include/ipv6
 INCLUDE_DIRS-$(CONFIG_RABBITMQ_USE_CYASSL_ENA) += -I$(PROJ_ROOT_DIR)CyaSSL
 
 INCLUDE_DIRS = $(INCLUDE_DIRS-y)
