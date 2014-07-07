@@ -27,6 +27,7 @@
 #include "amqp_ssl_socket.h"
 #include "amqp_private.h"
 #include "lwip/sockets.h"
+
 #include <cyassl/ssl.h>
 #include <stdlib.h>
 #include <string.h>
@@ -74,6 +75,13 @@ amqp_ssl_socket_send_inner(void *base, const void *buf, size_t len, int flags)
   flags |= MSG_NOSIGNAL;
 #endif
 
+  // TBDRMS xyzzy experimenting with a non-blocking send...
+#define RABBITMQ_DONTWAIT 0
+
+#if RABBITMQ_DONTWAIT
+  flags |= MSG_DONTWAIT;
+#endif
+
   uint64_t startTimeNs;
 
 start:
@@ -88,7 +96,10 @@ start:
 
   if (res < 0) {
     self->last_error = CyaSSL_get_error(self->ssl,res);
-    if (EINTR == self->last_error) {
+    if (SSL_ERROR_WANT_WRITE == self->last_error) {
+#if RABBITMQ_DONTWAIT
+      vTaskDelay(10);
+#endif
       goto start;
     } else {
       res = AMQP_STATUS_SOCKET_ERROR;
