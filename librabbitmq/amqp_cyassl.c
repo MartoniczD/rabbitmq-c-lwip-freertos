@@ -96,9 +96,16 @@ start:
 
   if (res < 0) {
     self->last_error = CyaSSL_get_error(self->ssl,res);
+#define XYZZY 0
+
+
+#if XYZZY
     if (SSL_ERROR_WANT_WRITE == self->last_error) {
 #if RABBITMQ_DONTWAIT
       vTaskDelay(10);
+#endif
+#else
+    if (EINTR == self->last_error) {
 #endif
       goto start;
     } else {
