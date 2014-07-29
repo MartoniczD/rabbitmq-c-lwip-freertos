@@ -290,6 +290,7 @@ int amqp_handle_input(amqp_connection_state_t state,
     channel = amqp_d16(raw_frame, 1);
 
     if ((int)channel > state->channel_max) {
+      RABBIT_INFO("AMQP_STATUS_BAD_AMQP_DATA channel %d > %d", (int)channel, state->channel_max);
       return AMQP_STATUS_BAD_AMQP_DATA;
     }
 
@@ -297,6 +298,7 @@ int amqp_handle_input(amqp_connection_state_t state,
       = amqp_d32(raw_frame, 3) + HEADER_SIZE + FOOTER_SIZE;
 
     if ((size_t)state->frame_max < state->target_size) {
+      RABBIT_INFO("AMQP_STATUS_BAD_AMQP_DATA channel %u > %u", (size_t)state->frame_max, state->target_size);
       return AMQP_STATUS_BAD_AMQP_DATA;
     }
 
@@ -321,7 +323,7 @@ int amqp_handle_input(amqp_connection_state_t state,
     RABBIT_INFO( "state=%d inbound_offset=%d target_size=%d raw_char2=%08x: %02x %02x %02x %02x %02x %02x %02x %02x frame_type=%u channel=%d target_size=%d bytes_consumed=%d",
             state->state, state->inbound_offset, state->target_size, (int)raw_char2,
             (int)raw_char2[0], (int)raw_char2[1], (int)raw_char2[2], (int)raw_char2[3], (int)raw_char2[4], (int)raw_char2[5], (int)raw_char2[6], (int)raw_char2[7],
-            (unsigned int)decoded_frame->frame_type, channel, new_target_size, bytes_consumed);
+            (unsigned int)decoded_frame->frame_type, channel, state->target_size, bytes_consumed);
 #endif
 
     /* do we have target_size data yet? if not, return with the
