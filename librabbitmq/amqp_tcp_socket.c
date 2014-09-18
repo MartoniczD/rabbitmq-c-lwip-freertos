@@ -31,7 +31,10 @@
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
+
+#ifdef RABBIT_USE_LWIP
 #include <lwip/sockets.h>
+#endif
 
 struct amqp_tcp_socket_t {
   const struct amqp_socket_class_t *klass;
@@ -56,6 +59,7 @@ amqp_tcp_socket_send_inner(void *base, const void *buf, size_t len, int flags)
 #endif
 
 start:
+  RABBIT_INFO("Calling send on: %d", self->sockfd);
   res = send(self->sockfd, buf_left, len_left, flags);
 
   if (res < 0) {
@@ -204,6 +208,7 @@ amqp_tcp_socket_recv(void *base, void *buf, size_t len, int flags)
   ssize_t ret;
 
 start:
+  RABBIT_INFO("Calling recv on: %d", self->sockfd);
   ret = recv(self->sockfd, buf, len, flags);
 
   if (0 > ret) {
@@ -261,6 +266,7 @@ amqp_tcp_socket_delete(void *base)
   struct amqp_tcp_socket_t *self = (struct amqp_tcp_socket_t *)base;
 
   if (self) {
+    RABBIT_INFO("socket delete on: %d", self->sockfd);
     amqp_tcp_socket_close(self);
     free(self->buffer);
     free(self);

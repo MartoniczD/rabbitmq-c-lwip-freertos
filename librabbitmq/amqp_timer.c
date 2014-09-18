@@ -22,13 +22,14 @@
  */
 #include "amqp.h"
 #include "amqp_timer.h"
-#include <posix/time.h>
 #include <string.h>
 
 #if (defined(_WIN32) || defined(__WIN32__) || defined(WIN32))
 # define AMQP_WIN_TIMER_API
 #elif (defined(machintosh) || defined(__APPLE__) || defined(__APPLE_CC__))
 # define AMQP_MAC_TIMER_API
+#elif defined(AMQP_64BIT_TIME_FUNC)
+# define AMQP_64BIT_TIME_API
 #else
 # define AMQP_POSIX_TIMER_API
 #endif
@@ -41,7 +42,7 @@
 uint64_t
 amqp_get_monotonic_timestamp(void)
 {
-  static uint64_t NS_PER_COUNT = 0;
+  static double NS_PER_COUNT = 0;
   LARGE_INTEGER perf_count;
 
   if (0 == NS_PER_COUNT) {
@@ -49,14 +50,14 @@ amqp_get_monotonic_timestamp(void)
     if (!QueryPerformanceFrequency(&perf_frequency)) {
       return 0;
     }
-    NS_PER_COUNT = AMQP_NS_PER_S / perf_frequency.QuadPart;
+    NS_PER_COUNT = (double)AMQP_NS_PER_S / perf_frequency.QuadPart;
   }
 
   if (!QueryPerformanceCounter(&perf_count)) {
     return 0;
   }
 
-  return perf_count.QuadPart * NS_PER_COUNT;
+  return (uint64_t)(perf_count.QuadPart * NS_PER_COUNT);
 }
 #endif /* AMQP_WIN_TIMER_API */
 
@@ -84,6 +85,15 @@ amqp_get_monotonic_timestamp(void)
   return timestamp;
 }
 #endif /* AMQP_MAC_TIMER_API */
+
+
+#ifdef AMQP_64BIT_TIME_API
+uint64_t
+amqp_get_monotonic_timestamp(void)
+{
+  return AMQP_NS_PER_US * AMQP_64BIT_TIME_FUNC();
+}
+#endif /* AMQP_64BIT_TIME_API */
 
 #ifdef AMQP_POSIX_TIMER_API
 #include <time.h>

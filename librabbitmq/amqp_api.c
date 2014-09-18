@@ -40,8 +40,7 @@
 
 #include "amqp_private.h"
 #include "amqp_timer.h"
-#include "board/boardControl.h"
-#include "logger.h"
+#include "lightStreams.h"
 #include <assert.h>
 #include <stdarg.h>
 #include <stdint.h>
@@ -132,6 +131,7 @@ const char *amqp_error_string2(int code)
   return error_string;
 }
 
+#ifndef CONFIG_RABBITMQ_TINY_EMBEDDED_ENA
 char *amqp_error_string(int code)
 {
   /* Previously sometimes clients had to flip the sign on a return value from a
@@ -146,18 +146,19 @@ char *amqp_error_string(int code)
   }
   return strdup(amqp_error_string2(code));
 }
+#endif
 
+#ifndef CONFIG_RABBITMQ_TINY_EMBEDDED_ENA
 void amqp_abort(const char *fmt, ...)
 {
-  // NB: the vargs here doesn't seem to be working correctly. @@@ TODO @@@
   va_list ap;
   va_start(ap, fmt);
-  lprintf(fmt, ap);
+  vfprintf(stderr, fmt, ap);
   va_end(ap);
-  lstr("\n");
-  systemResetNow();
+  fputc('\n', stderr);
+  abort();
 }
-
+#endif
 const amqp_bytes_t amqp_empty_bytes = { 0, NULL };
 const amqp_table_t amqp_empty_table = { 0, NULL };
 const amqp_array_t amqp_empty_array = { 0, NULL };
@@ -167,18 +168,18 @@ const amqp_array_t amqp_empty_array = { 0, NULL };
    ? (replytype *) state->most_recent_api_result.reply.decoded\
    : NULL)
 
-int amqp_basic_publish(amqp_connection_state_t state,
-                       amqp_channel_t channel,
-                       amqp_bytes_t exchange,
-                       amqp_bytes_t routing_key,
-                       amqp_boolean_t mandatory,
-                       amqp_boolean_t immediate,
-                       amqp_basic_properties_t const *properties,
-                       amqp_bytes_t body)
+
+int amqp_basic_publish_method_and_header(
+    amqp_connection_state_t state,
+    amqp_channel_t channel,
+    amqp_bytes_t exchange,
+    amqp_bytes_t routing_key,
+    amqp_boolean_t mandatory,
+    amqp_boolean_t immediate,
+    amqp_basic_properties_t const *properties,
+    size_t body_len,
+    amqp_frame_t *fP)
 {
-  amqp_frame_t f;
-  size_t body_offset;
-  size_t usable_body_payload_size = state->frame_max - (HEADER_SIZE + FOOTER_SIZE);
   int res;
 
   amqp_basic_publish_t m;
@@ -206,7 +207,9 @@ int amqp_basic_publish(amqp_connection_state_t state,
     }
   }
 
+  RABBIT_INFO("amqp_send_method(%08x,%d,AMQP_BASIC_PUBLISH_METHOD,%08x )", (int)state, channel, (int)&m);
   res = amqp_send_method(state, channel, AMQP_BASIC_PUBLISH_METHOD, &m);
+  RABBIT_INFO("amqp_send_method(%08x,%d,AMQP_BASIC_PUBLISH_METHOD,%08x ) res=%d", (int)state, channel, (int)&m, res);
   if (res < 0) {
     return res;
   }
@@ -216,16 +219,52 @@ int amqp_basic_publish(amqp_connection_state_t state,
     properties = &default_properties;
   }
 
-  f.frame_type = AMQP_FRAME_HEADER;
-  f.channel = channel;
-  f.payload.properties.class_id = AMQP_BASIC_CLASS;
-  f.payload.properties.body_size = body.len;
-  f.payload.properties.decoded = (void *) properties;
+  fP->frame_type = AMQP_FRAME_HEADER;
+  fP->channel = channel;
+  fP->payload.properties.class_id = AMQP_BASIC_CLASS;
+  fP->payload.properties.body_size = body_len;
+  fP->payload.properties.decoded = (void *) properties;
 
-  res = amqp_send_frame(state, &f);
-  if (res < 0) {
+  RABBIT_INFO("amqp_send_frame(%08x,%08x) len=%d", (int)state, (int)fP, body_len);
+  res = amqp_send_frame(state, fP);
+  RABBIT_INFO("amqp_send_frame(%08x,%08x) len=%d res=%d", (int)state, (int)fP, body_len, res);
+  return res;
+}
+
+size_t amqp_usable_body_payload_size( int frame_max )
+{
+  return frame_max - (HEADER_SIZE + FOOTER_SIZE);
+}
+
+int amqp_basic_publish(
+    amqp_connection_state_t state,
+    amqp_channel_t channel,
+    amqp_bytes_t exchange,
+    amqp_bytes_t routing_key,
+    amqp_boolean_t mandatory,
+    amqp_boolean_t immediate,
+    amqp_basic_properties_t const *properties,
+    amqp_bytes_t body)
+{
+  amqp_frame_t f;
+  size_t body_offset;
+  size_t usable_body_payload_size = amqp_usable_body_payload_size(state->frame_max);
+  int res;
+
+  res = amqp_basic_publish_method_and_header(state,
+                         channel,
+                         exchange,
+                         routing_key,
+                         mandatory,
+                         immediate,
+                         properties,
+                         body.len,
+                         &f);
+
+  if (AMQP_STATUS_OK != res) {
     return res;
   }
+
 
   body_offset = 0;
   while (body_offset < body.len) {
@@ -245,7 +284,82 @@ int amqp_basic_publish(amqp_connection_state_t state,
     }
 
     body_offset += f.payload.body_fragment.len;
+    RABBIT_INFO("amqp_send_frame(%08x,%08x) fragment.len=%d", (int)state, (int)&f, f.payload.body_fragment.len);
     res = amqp_send_frame(state, &f);
+    RABBIT_INFO("amqp_send_frame(%08x,%08x) fragment.len=%d res=%d", (int)state, (int)&f, f.payload.body_fragment.len, res);
+    if (res < 0) {
+      return res;
+    }
+  }
+
+  return AMQP_STATUS_OK;
+}
+
+// todo create the stream in the dataRepSet process
+// add abort processing calls to the stream
+// send the stream to here.
+// we read from the stream here
+// create process to munge through the stream pushing it.
+// we send a message to the munge process giving it a function to build the message
+// the process waits on a queue.
+// when the queue is called it calls the function and a stream to build with.
+// the function builds streams.
+
+int amqp_basic_publish_streaming(amqp_connection_state_t state,
+                       amqp_channel_t channel,
+                       amqp_bytes_t exchange,
+                       amqp_bytes_t routing_key,
+                       amqp_boolean_t mandatory,
+                       amqp_boolean_t immediate,
+                       amqp_basic_properties_t const *properties,
+                       lightStreamAggregateP_t bodyStreamP)
+{
+  amqp_frame_t f;
+  size_t body_offset;
+  size_t usable_body_payload_size = amqp_usable_body_payload_size(state->frame_max);
+  int res;
+
+  res = amqp_basic_publish_method_and_header(state,
+                         channel,
+                         exchange,
+                         routing_key,
+                         mandatory,
+                         immediate,
+                         properties,
+                         lsLen(bodyStreamP),
+                         &f);
+
+  if (AMQP_STATUS_OK != res) {
+    return res;
+  }
+
+  body_offset = 0;
+#if 0
+  lprintf("rabbit - entering while remaining=%d len=%d", lsLen(bodyStreamP));
+#endif
+  while (body_offset < lsLen(bodyStreamP)) {
+    size_t remaining = lsLen(bodyStreamP) - body_offset;
+#if 0
+    lprintf("rabbit - entering while remaining=%d len=%d", remaining, lsLen(bodyStreamP));
+#endif
+
+    if (remaining == 0) {
+      break;
+    }
+
+
+    f.frame_type = AMQP_FRAME_BODY;
+    f.channel = channel;
+    if (remaining >= usable_body_payload_size) {
+      f.payload.body_fragment.len = usable_body_payload_size;
+    } else {
+      f.payload.body_fragment.len = remaining;
+    }
+
+    body_offset += f.payload.body_fragment.len;
+    RABBIT_INFO("amqp_send_frame(%08x,%08x) fragment.len=%d", (int)state, (int)&f, f.payload.body_fragment.len);
+    res = amqp_send_frame_streaming(state, &f, bodyStreamP);
+    RABBIT_INFO("amqp_send_frame(%08x,%08x) fragment.len=%d res=%d", (int)state, (int)&f, f.payload.body_fragment.len, res);
     if (res < 0) {
       return res;
     }
@@ -329,4 +443,15 @@ int amqp_basic_reject(amqp_connection_state_t state,
   req.delivery_tag = delivery_tag;
   req.requeue = requeue;
   return amqp_send_method(state, channel, AMQP_BASIC_REJECT_METHOD, &req);
+}
+
+int amqp_basic_nack(amqp_connection_state_t state, amqp_channel_t channel,
+                          uint64_t delivery_tag, amqp_boolean_t multiple,
+                          amqp_boolean_t requeue)
+{
+  amqp_basic_nack_t req;
+  req.delivery_tag = delivery_tag;
+  req.multiple = multiple;
+  req.requeue = requeue;
+  return amqp_send_method(state, channel, AMQP_BASIC_NACK_METHOD, &req);
 }

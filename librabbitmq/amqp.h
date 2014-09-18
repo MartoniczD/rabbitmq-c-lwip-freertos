@@ -40,6 +40,10 @@
 
 /** \cond HIDE_FROM_DOXYGEN */
 
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
+
 #ifdef __cplusplus
 #define AMQP_BEGIN_DECLS extern "C" {
 #define AMQP_END_DECLS }
@@ -158,6 +162,11 @@ typedef _W64 int ssize_t;
 
 /** \endcond */
 
+/**
+ * todo define when we include this.
+ */
+#include "lightStreams.h"
+
 #include <stddef.h>
 #include <stdint.h>
 
@@ -222,8 +231,8 @@ AMQP_BEGIN_DECLS
  */
 
 #define AMQP_VERSION_MAJOR 0
-#define AMQP_VERSION_MINOR 4
-#define AMQP_VERSION_PATCH 1
+#define AMQP_VERSION_MINOR 5
+#define AMQP_VERSION_PATCH 0
 #define AMQP_VERSION_IS_RELEASE 1
 
 
@@ -714,6 +723,17 @@ typedef enum amqp_status_enum_
                                                         certificate failed. */
   AMQP_STATUS_SSL_CONNECTION_FAILED =     -0x0203  /**< SSL handshake failed. */
 } amqp_status_enum;
+
+/**
+ * AMQP delivery modes.
+ * Use these values for the #amqp_basic_properties_t::delivery_mode field.
+ *
+ * \since v0.5
+ */
+typedef enum {
+	AMQP_DELIVERY_NONPERSISTENT = 1, /**< Non-persistent message */
+	AMQP_DELIVERY_PERSISTENT = 2 /**< Persistent message */
+} amqp_delivery_mode_enum;
 
 AMQP_END_DECLS
 
@@ -1264,6 +1284,14 @@ AMQP_CALL amqp_maybe_release_buffers_on_channel(amqp_connection_state_t state,
 AMQP_PUBLIC_FUNCTION
 int
 AMQP_CALL amqp_send_frame(amqp_connection_state_t state, amqp_frame_t const *frame);
+
+/**
+ * todo define this prototype.
+ */
+AMQP_PUBLIC_FUNCTION int amqp_send_frame_streaming(
+    amqp_connection_state_t state,
+    const amqp_frame_t *frame,
+    lightStreamAggregateP_t bodyStreamP);
 
 /**
  * Compare two table entries
@@ -1835,6 +1863,17 @@ AMQP_CALL amqp_basic_publish(amqp_connection_state_t state, amqp_channel_t chann
                              amqp_bytes_t body);
 
 /**
+ * todo define interface here.
+ */
+AMQP_PUBLIC_FUNCTION
+int
+AMQP_CALL amqp_basic_publish_streaming(amqp_connection_state_t state, amqp_channel_t channel,
+                             amqp_bytes_t exchange, amqp_bytes_t routing_key,
+                             amqp_boolean_t mandatory, amqp_boolean_t immediate,
+                             struct amqp_basic_properties_t_ const *properties,
+                             lightStreamAggregateP_t bodyStreamP);
+
+/**
  * Closes an channel
  *
  * \param [in] state the connection object
@@ -1873,7 +1912,7 @@ AMQP_CALL amqp_connection_close(amqp_connection_state_t state, int code);
  *
  * \param [in] state the connection object
  * \param [in] channel the channel identifier
- * \param [in] delivery_tag the delivery take of the message to be ack'd
+ * \param [in] delivery_tag the delivery tag of the message to be ack'd
  * \param [in] multiple if true, ack all messages up to this delivery tag, if
  *              false ack only this delivery tag
  * \return 0 on success,  0 > on failing to send the ack to the broker.
@@ -1928,6 +1967,30 @@ AMQP_CALL amqp_basic_reject(amqp_connection_state_t state, amqp_channel_t channe
                             uint64_t delivery_tag, amqp_boolean_t requeue);
 
 /**
+ * Do a basic.nack
+ *
+ * Actively reject a message, this has the same effect as amqp_basic_reject()
+ * however, amqp_basic_nack() can negatively acknowledge multiple messages with
+ * one call much like amqp_basic_ack() can acknowledge mutliple messages with
+ * one call.
+ *
+ * \param [in] state the connection object
+ * \param [in] channel the channel identifier
+ * \param [in] delivery_tag the delivery tag of the message to reject
+ * \param [in] multiple if set to 1 negatively acknowledge all unacknowledged
+ *              messages on this channel.
+ * \param [in] requeue indicate to the broker whether it should requeue the
+ *              message or dead-letter it.
+ * \return AMQP_STATUS_OK on success, an amqp_status_enum value otherwise.
+ *
+ * \since v0.5.0
+ */
+AMQP_PUBLIC_FUNCTION
+int
+AMQP_CALL amqp_basic_nack(amqp_connection_state_t state, amqp_channel_t channel,
+                          uint64_t delivery_tag, amqp_boolean_t multiple,
+                          amqp_boolean_t requeue);
+/**
  * Check to see if there is data left in the receive buffer
  *
  * Can be used to see if there is data still in the buffer, if so
@@ -1943,6 +2006,7 @@ AMQP_PUBLIC_FUNCTION
 amqp_boolean_t
 AMQP_CALL amqp_data_in_buffer(amqp_connection_state_t state);
 
+#ifndef CONFIG_RABBITMQ_TINY_EMBEDDED_ENA
 /**
  * Get the error string for the given error code.
  *
@@ -1963,7 +2027,7 @@ AMQP_DEPRECATED(
   char *
   AMQP_CALL amqp_error_string(int err)
 );
-
+#endif
 
 /**
  * Get the error string for the given error code.
@@ -2128,7 +2192,7 @@ typedef struct amqp_envelope_t_ {
  *
  * \param [in,out] state the connection object
  * \param [in,out] envelope a pointer to a amqp_envelope_t object. Caller
- *                 should call amqp_envelope_destroy() when it is done using
+ *                 should call #amqp_destroy_envelope() when it is done using
  *                 the fields in the envelope object. The caller is responsible
  *                 for allocating/destroying the amqp_envelope_t object itself.
  * \param [in] timeout a timeout to wait for a message delivery. Passing in
@@ -2295,6 +2359,20 @@ amqp_socket_get_sockfd(amqp_socket_t *self);
 AMQP_PUBLIC_FUNCTION
 amqp_socket_t *
 amqp_get_socket(amqp_connection_state_t state);
+
+/**
+ * Get the broker properties table
+ *
+ * \param [in] state the connection object
+ * \return a pointer to an amqp_table_t containing the properties advertised
+ *  by the broker on connection. The connection object owns the table, it
+ *  should not be modified.
+ *
+ * \since v0.5.0
+ */
+AMQP_PUBLIC_FUNCTION
+amqp_table_t *
+amqp_get_server_properties(amqp_connection_state_t state);
 
 AMQP_END_DECLS
 

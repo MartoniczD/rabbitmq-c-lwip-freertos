@@ -110,20 +110,21 @@ TARGET_LIB_DIR := $(CURDIR)/
 # ------------------------------------------------------------------------------+-
 # C Source Files
 # ------------------------------------------------------------------------------+-
-CSOURCE := \
-    ../$(LIB)/amqp_framing.c  \
-    ../$(LIB)/amqp_api.c   \
-    ../$(LIB)/amqp_connection.c   \
-    ../$(LIB)/amqp_mem.c   \
-    ../$(LIB)/amqp_socket.c   \
-    ../$(LIB)/amqp_table.c   \
-    ../$(LIB)/amqp_url.c   \
-    ../$(LIB)/amqp_tcp_socket.c   \
-    ../$(LIB)/amqp_timer.c   \
-    ../$(LIB)/amqp_consumer.c   \
-    ../$(LIB)/posix_time.c  
+CSOURCE-y =
+CSOURCE-y                                           += ../$(LIB)/lightStreams.c
+CSOURCE-y                                           += ../$(LIB)/amqp_framing.c
+CSOURCE-y                                           += ../$(LIB)/amqp_api.c
+CSOURCE-y                                           += ../$(LIB)/amqp_connection.c
+CSOURCE-y                                           += ../$(LIB)/amqp_mem.c
+CSOURCE-y                                           += ../$(LIB)/amqp_socket.c
+CSOURCE-y                                           += ../$(LIB)/amqp_table.c
+CSOURCE-y                                           += ../$(LIB)/amqp_url.c
+CSOURCE-y                                           += ../$(LIB)/amqp_tcp_socket.c
+CSOURCE-y                                           += ../$(LIB)/amqp_timer.c
+CSOURCE-y                                           += ../$(LIB)/amqp_consumer.c
+CSOURCE-$(CONFIG_RABBITMQ_USE_CYASSL_ENA)           += ../$(LIB)/amqp_cyassl.c
 
-
+CSOURCE = $(CSOURCE-y)
 
 # ------------------------------------------------------------------------------+-
 # Include Directories
@@ -136,17 +137,21 @@ CSOURCE := \
 # @@@@@@@@@@@@@@@@
 #
 # ------------------------------------------------------------------------------+-
-INCLUDE_DIRS-y                    =
-INCLUDE_DIRS-y                    += -I$(LIB_SRC_DIR)
-INCLUDE_DIRS-$(CONFIG_APP)        += -I$(PROJ_ROOT_DIR)$(APP_DIR)/include
-INCLUDE_DIRS-$(CONFIG_APP)        += -I$(PROJ_ROOT_DIR)$(APP_DIR)/include/generated
-INCLUDE_DIRS-$(CONFIG_APP)        += -I$(PROJ_ROOT_DIR)$(APP_DIR)/source
-INCLUDE_DIRS-$(CONFIG_QUICKSTART) += -I$(PROJ_ROOT_DIR)$(QUICKSTART_DIR)/include
-INCLUDE_DIRS-$(CONFIG_QUICKSTART) += -I$(PROJ_ROOT_DIR)$(QUICKSTART_DIR)/include/generated
-INCLUDE_DIRS-$(CONFIG_QUICKSTART) += -I$(PROJ_ROOT_DIR)$(QUICKSTART_DIR)/source
-INCLUDE_DIRS-y                    += -I$(PROJ_ROOT_DIR)lwip-contrib/ports/cross/src/include/LM3S
-INCLUDE_DIRS-y                    += -I$(PROJ_ROOT_DIR)lwip/src/include
-INCLUDE_DIRS-y                    += -I$(PROJ_ROOT_DIR)lwip/src/include/ipv4
+INCLUDE_DIRS-y                                 =
+INCLUDE_DIRS-y                                 += -I$(LIB_SRC_DIR)
+INCLUDE_DIRS-$(CONFIG_APP)                     += -I$(PROJ_ROOT_DIR)$(APP_DIR)/include
+INCLUDE_DIRS-$(CONFIG_APP)                     += -I$(PROJ_ROOT_DIR)$(APP_DIR)/include/generated
+INCLUDE_DIRS-$(CONFIG_APP)                     += -I$(PROJ_ROOT_DIR)$(APP_DIR)/source
+INCLUDE_DIRS-$(CONFIG_QUICKSTART)              += -I$(PROJ_ROOT_DIR)$(QUICKSTART_DIR)/include
+INCLUDE_DIRS-$(CONFIG_QUICKSTART)              += -I$(PROJ_ROOT_DIR)$(QUICKSTART_DIR)/include/generated
+INCLUDE_DIRS-$(CONFIG_QUICKSTART)              += -I$(PROJ_ROOT_DIR)$(QUICKSTART_DIR)/source
+INCLUDE_DIRS-$(CONFIG_QUICKSTART)              += -I$(PROJ_ROOT_DIR)chaney.aculink.bridge.freertos/FreeRTOS/Source/include
+INCLUDE_DIRS-$(CONFIG_FREERTOS_PORT_ARM_CM3)   += -I$(PROJ_ROOT_DIR)chaney.aculink.bridge.freertos/FreeRTOS/Source/portable/GCC/ARM_CM3
+INCLUDE_DIRS-$(CONFIG_FREERTOS_PORT_ARM_CM4F)  += -I$(PROJ_ROOT_DIR)chaney.aculink.bridge.freertos/FreeRTOS/Source/portable/GCC/ARM_CM4F
+INCLUDE_DIRS-y                                 += -I$(PROJ_ROOT_DIR)lwip-contrib/ports/cross/src/include/LM3S
+INCLUDE_DIRS-y                                 += -I$(PROJ_ROOT_DIR)lwip/src/include
+INCLUDE_DIRS-y                                 += -I$(PROJ_ROOT_DIR)lwip/src/include/ipv4
+INCLUDE_DIRS-$(CONFIG_RABBITMQ_USE_CYASSL_ENA) += -I$(PROJ_ROOT_DIR)CyaSSL
 
 INCLUDE_DIRS = $(INCLUDE_DIRS-y)
 
@@ -158,18 +163,22 @@ INCLUDE_DIRS = $(INCLUDE_DIRS-y)
 COMPILER = GCC
 SUBARCH  = ARM_CM3
 
-CPPFLAGS = \
-    -DAMQP_BUILD \
-    -DAMQP_STATIC \
-    -DENABLE_THREAD_SAFETY \
-    -DWITH_SSL=1 \
-    -DLWIP_TIMEVAL_PRIVATE=0 \
-    -DNDEBUG \
-    -DVERSION=\"0.3.0\"
+CPPFLAGS                                             =
+CPPFLAGS-y                                           += $(CPPFLAGS_CMD_LINE)
+CPPFLAGS-y                                           += -DAMQP_BUILD
+CPPFLAGS-y                                           += -DAMQP_STATIC
+CPPFLAGS-y                                           += -DENABLE_THREAD_SAFETY
+CPPFLAGS-y                                           += -DWITH_SSL=1
+CPPFLAGS-y                                           += -DLWIP_TIMEVAL_PRIVATE=0
+CPPFLAGS-y                                           += -DVERSION=\"0.3.0\"
+CPPFLAGS-y                                           += $(INCLUDE_DIRS)
+CPPFLAGS-y                                           += -D $(COMPILER)_$(SUBARCH)
+CPPFLAGS-$(CONFIG_RABBITMQ_HAVE_CONFIG_H_ENA)        += -D HAVE_CONFIG_H
+CPPFLAGS-$(CONFIG_AMQP_USE_UNTESTED_SSL_BACKEND_ENA) += -D AMQP_USE_UNTESTED_SSL_BACKEND
+CPPFLAGS-$(CONFIG_INCDNTLOG_DEBUG_RABBITMQC_ENA)     += -D DEBUG_RABBIT
+CPPFLAGS-$(CONFIG_NDEBUG_ENA)                        += -D"NDEBUG"
 
-CPPFLAGS += \
-    $(INCLUDE_DIRS) \
-    -D $(COMPILER)_$(SUBARCH)
+CPPFLAGS = $(CPPFLAGS-y)
 
 # ------------------------------------------------------------------------------+-
 # Compilation Options
@@ -182,12 +191,13 @@ CFLAGS-y                              += $(TOOLCHAIN_MFLOAT_ABI_EQ)
 CFLAGS-y                              += $(TOOLCHAIN_MFPU_EQ)
 CFLAGS-y                              += $(TOOLCHAIN_OPTIMISATION)
 CFLAGS-y                              += -std=c99
-CFLAGS-y                              += -pedantic
+###CFLAGS-y                              += -pedantic
 CFLAGS-$(CONFIG_TOOLCHAIN_WALL)       += -Wall
 CFLAGS-y                              += -Wextra
 CFLAGS-y                              += -Wstrict-prototypes
 CFLAGS-y                              += -Wcast-align
 CFLAGS-y                              += -Wno-unused-function
+CFLAGS-$(CONFIG_TOOLCHAIN_WERROR)     += -Werror
 CFLAGS-y                              += -fno-common
 CFLAGS-y                              += -fvisibility=hidden
 CFLAGS-y                              += -ffunction-sections

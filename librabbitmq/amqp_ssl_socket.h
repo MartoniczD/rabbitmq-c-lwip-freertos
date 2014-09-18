@@ -25,7 +25,14 @@
 #ifndef AMQP_SSL_H
 #define AMQP_SSL_H
 
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
+
 #include <amqp.h>
+#if defined CONFIG_RABBITMQ_USE_CYASSL && CONFIG_RABBITMQ_USE_CYASSL
+#include <cyassl/ssl.h>
+#endif
 
 AMQP_BEGIN_DECLS
 
@@ -55,13 +62,29 @@ amqp_socket_t *
 AMQP_CALL
 amqp_ssl_socket_new(amqp_connection_state_t state);
 
+#if defined CONFIG_RABBITMQ_USE_CYASSL && CONFIG_RABBITMQ_USE_CYASSL
+CYASSL_CTX *amqp_ssl_socket_get_cyassl_ctx(amqp_socket_t *base);
+CYASSL     *amqp_ssl_socket_get_cyassl_session_object(amqp_socket_t *base);
+#endif
+
+#if defined(CONFIG_RABBITMQ_USE_CYASSL_BUFFER) && CONFIG_RABBITMQ_USE_CYASSL_BUFFER
+int
+amqp_ssl_socket_set_cacert_buffer(amqp_socket_t *base,
+                           const char *cacert,
+                           size_t certSize,
+                           int type);
+#endif
+
+#if !defined(NO_FILESYSTEM) && !defined(NO_CERTS)
+
 /**
  * Set the CA certificate.
  *
  * \param [in,out] self An SSL/TLS socket object.
  * \param [in] cacert Path to the CA cert file in PEM format.
  *
- * \return \ref AMQP_STATUS_OK on success an enum
+ * \return \ref AMQP_STATUS_OK on success an \ref amqp_status_enum value on
+ *  failure.
  *
  * \since v0.4.0
  */
@@ -70,7 +93,10 @@ int
 AMQP_CALL
 amqp_ssl_socket_set_cacert(amqp_socket_t *self,
                            const char *cacert);
+#endif
 
+
+#if !defined(NO_FILESYSTEM) && !defined(NO_CERTS)
 /**
  * Set the client key.
  *
@@ -78,7 +104,8 @@ amqp_ssl_socket_set_cacert(amqp_socket_t *self,
  * \param [in] cert Path to the client certificate in PEM foramt.
  * \param [in] key Path to the client key in PEM format.
  *
- * \return Zero if successful, -1 otherwise.
+ * \return \ref AMQP_STATUS_OK on success an \ref amqp_status_enum value on
+ *  failure.
  *
  * \since v0.4.0
  */
@@ -88,6 +115,7 @@ AMQP_CALL
 amqp_ssl_socket_set_key(amqp_socket_t *self,
                         const char *cert,
                         const char *key);
+#endif
 
 /**
  * Set the client key from a buffer.
@@ -97,10 +125,26 @@ amqp_ssl_socket_set_key(amqp_socket_t *self,
  * \param [in] key A buffer containing client key in PEM format.
  * \param [in] n The length of the buffer.
  *
- * \return Zero if successful, -1 otherwise.
+ * \return \ref AMQP_STATUS_OK on success an \ref amqp_status_enum value on
+ *  failure.
  *
  * \since v0.4.0
  */
+
+#if defined(CONFIG_RABBITMQ_USE_CYASSL_BUFFER) && CONFIG_RABBITMQ_USE_CYASSL_BUFFER
+
+AMQP_PUBLIC_FUNCTION
+int
+AMQP_CALL
+amqp_ssl_socket_set_key_buffer(amqp_socket_t *base,
+                                   const char *cert,
+                                   const size_t certSize,
+                                   const char *key,
+                                   const size_t keySize,
+                                   const int keyType);
+
+#else
+
 AMQP_PUBLIC_FUNCTION
 int
 AMQP_CALL
@@ -108,6 +152,8 @@ amqp_ssl_socket_set_key_buffer(amqp_socket_t *self,
                                const char *cert,
                                const void *key,
                                size_t n);
+
+#endif
 
 /**
  * Enable or disable peer verification.
@@ -145,9 +191,9 @@ amqp_ssl_socket_set_verify(amqp_socket_t *self,
  * NOTE: calling this function after the first socket has been opened with
  * amqp_open_socket() will not have any effect.
  *
- * \param [in] do_initalize If 0 rabbitmq-c will not initialize the SSL
- *                          library, otherwise rabbitmq-c will initialize the
- *                          SSL library
+ * \param [in] do_initialize If 0 rabbitmq-c will not initialize the SSL
+ *                           library, otherwise rabbitmq-c will initialize the
+ *                           SSL library
  *
  * \since v0.4.0
  */

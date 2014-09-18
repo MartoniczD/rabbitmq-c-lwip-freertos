@@ -48,8 +48,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "logger.h"
-
 #include <errno.h>
 
 #ifdef _WIN32
@@ -62,10 +60,15 @@
 # include <sys/types.h>      /* On older BSD this must come before net includes */
 # include <netinet/in.h>
 # include <netinet/tcp.h>
-# include <lwip/sockets.h>
-# include <lwip/netdb.h>
-# include <sys/uio.h>
-# include <fcntl.h>
+#    ifdef RABBIT_USE_LWIP
+#     include <lwip/sockets.h>
+#     include <lwip/netdb.h>
+#    else
+#     include <sys/socket.h>
+#     include <netdb.h>
+#     include <sys/uio.h>
+#     include <fcntl.h>
+#    endif
 # include <unistd.h>
 #endif
 
@@ -100,19 +103,24 @@ amqp_os_socket_socket(int domain, int type, int protocol)
     */
   return (int)socket(domain, type, protocol);
 #else
+
+#ifndef RABBIT_USE_LWIP
   int flags;
+#endif
 
   int s = socket(domain, type, protocol);
+  RABBIT_INFO("Created socket: %d", s);
   if (s < 0) {
     return s;
   }
 
   /* Always enable CLOEXEC on the socket */
-#if 0
-@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
-"LWIP doesn't support fcntl"
-@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
-  flags = fcntl(s, F_GETFD, 0);
+#ifndef RABBIT_USE_LWIP
+    /*
+	  LWIP doesn't support fcntl
+	*/
+
+  flags = fcntl(s, F_GETFD);
   if (flags == -1
       || fcntl(s, F_SETFD, (long)(flags | FD_CLOEXEC)) == -1) {
     int e = errno;
@@ -136,7 +144,10 @@ amqp_os_socket_setsockopt(int sock, int level, int optname,
      const char * */
   return setsockopt(sock, level, optname, (const char *)optval, optlen);
 #else
-  return setsockopt(sock, level, optname, optval, optlen);
+  RABBIT_INFO("Calling setsockopt on: %d", sock);
+  int result = setsockopt(sock, level, optname, optval, optlen);
+  RABBIT_INFO("setsockopt on: %d res=%d", sock, result);
+  return result;
 #endif
 }
 
@@ -164,7 +175,10 @@ amqp_os_socket_setsockblock(int sock, int block)
     arg |= O_NONBLOCK;
   }
 
-  if (fcntl(sock, F_SETFL, arg) < 0) {
+  RABBIT_INFO("Calling fcntl on: %d %x %x", sock, F_SETFL, arg);
+  int result = fcntl(sock, F_SETFL, arg);
+  RABBIT_INFO("Calling fcntl on: %d res=%d", sock, result);
+  if (result < 0) {
     return AMQP_STATUS_SOCKET_ERROR;
   }
 
@@ -172,7 +186,21 @@ amqp_os_socket_setsockblock(int sock, int block)
 #endif
 }
 
+#if defined( RABBIT_USE_LWIP )
+int
+amqp_os_socket_error_lwip(int sd)
+{
 
+    int err;
+
+    socklen_t len = sizeof(err);
+
+    getsockopt(sd, SOL_SOCKET, SO_ERROR, &err, &len);
+
+    return err;
+}
+
+#else
 int
 amqp_os_socket_error(void)
 {
@@ -182,13 +210,18 @@ amqp_os_socket_error(void)
   return errno;
 #endif
 }
-
+#endif
 int
 amqp_os_socket_close(int sockfd)
 {
 #ifdef _WIN32
   return closesocket(sockfd);
 #else
+
+
+  RABBIT_INFO("todo rms setting fd to nonblocking prior to close: %d", sockfd);
+  amqp_os_socket_setsockblock(sockfd,0);
+  RABBIT_INFO("Calling close on: %d", sockfd);
   return close(sockfd);
 #endif
 }
@@ -338,6 +371,8 @@ int amqp_open_socket_noblock(char const *hostname,
 
       res = connect(sockfd, addr->ai_addr, addr->ai_addrlen);
 
+      RABBIT_INFO("connect sockfd=%d res=%d",sockfd, res);
+
       if (0 == res) {
         /* Connected immediately, set to blocking mode again */
         if (AMQP_STATUS_OK != amqp_os_socket_setsockblock(sockfd, 1)) {
@@ -351,6 +386,10 @@ int amqp_open_socket_noblock(char const *hostname,
 
 #ifdef _WIN32
       if (WSAEWOULDBLOCK == amqp_os_socket_error()) {
+#elif defined( RABBIT_USE_LWIP )
+      int error = amqp_os_socket_error_lwip(sockfd);
+      RABBIT_INFO(" amqp_os_socket_error(%d)=%d",sockfd,error);
+      if (EINPROGRESS == error) {
 #else
       if (EINPROGRESS == amqp_os_socket_error()) {
 #endif
@@ -367,6 +406,7 @@ int amqp_open_socket_noblock(char const *hostname,
 
           timer_error = amqp_timer_update(&timer, timeout);
 
+          RABBIT_INFO(" timer_error=%d",timer_error);
           if (timer_error < 0) {
             last_error = timer_error;
             break;
@@ -700,6 +740,7 @@ static int wait_frame_inner(amqp_connection_state_t state,
 
       if (AMQP_FRAME_HEARTBEAT == decoded_frame->frame_type) {
         amqp_maybe_release_buffers_on_channel(state, 0);
+        RABBIT_INFO("received heartbeat on connection: 0x%08X", state);
         continue;
       }
 
@@ -723,10 +764,12 @@ beginrecv:
         heartbeat.channel = 0;
         heartbeat.frame_type = AMQP_FRAME_HEARTBEAT;
 
+        RABBIT_INFO("send a heartbeat from connection: 0x%08X", state);
         res = amqp_send_frame(state, &heartbeat);
         if (AMQP_STATUS_OK != res) {
           return res;
         }
+        RABBIT_INFO("sent a heartbeat from connection: 0x%08X", state);
 
         current_timestamp = amqp_get_monotonic_timestamp();
         if (0 == current_timestamp) {
@@ -793,7 +836,7 @@ beginrecv:
   }
 }
 
-int amqp_queue_frame(amqp_connection_state_t state, amqp_frame_t *frame)
+static amqp_link_t * amqp_create_link_for_frame(amqp_connection_state_t state, amqp_frame_t *frame)
 {
   amqp_link_t *link;
   amqp_frame_t *frame_copy;
@@ -801,18 +844,28 @@ int amqp_queue_frame(amqp_connection_state_t state, amqp_frame_t *frame)
   amqp_pool_t *channel_pool = amqp_get_or_create_channel_pool(state, frame->channel);
 
   if (NULL == channel_pool) {
-    return AMQP_STATUS_NO_MEMORY;
+    return NULL;
   }
 
   link = amqp_pool_alloc(channel_pool, sizeof(amqp_link_t));
   frame_copy = amqp_pool_alloc(channel_pool, sizeof(amqp_frame_t));
 
   if (NULL == link || NULL == frame_copy) {
-    return AMQP_STATUS_NO_MEMORY;
+    return NULL;
   }
 
   *frame_copy = *frame;
   link->data = frame_copy;
+
+  return link;
+}
+
+int amqp_queue_frame(amqp_connection_state_t state, amqp_frame_t *frame)
+{
+  amqp_link_t *link = amqp_create_link_for_frame(state, frame);
+  if (NULL == link) {
+    return AMQP_STATUS_NO_MEMORY;
+  }
 
   if (NULL == state->first_queued_frame) {
     state->first_queued_frame = link;
@@ -822,6 +875,25 @@ int amqp_queue_frame(amqp_connection_state_t state, amqp_frame_t *frame)
 
   link->next = NULL;
   state->last_queued_frame = link;
+
+  return AMQP_STATUS_OK;
+}
+
+int amqp_put_back_frame(amqp_connection_state_t state, amqp_frame_t *frame)
+{
+  amqp_link_t *link = amqp_create_link_for_frame(state, frame);
+  if (NULL == link) {
+    return AMQP_STATUS_NO_MEMORY;
+  }
+
+  if (NULL == state->first_queued_frame) {
+    state->first_queued_frame = link;
+    state->last_queued_frame = link;
+    link->next = NULL;
+  } else {
+    link->next = state->first_queued_frame;
+    state->first_queued_frame = link;
+  }
 
   return AMQP_STATUS_OK;
 }
@@ -1090,7 +1162,9 @@ static amqp_rpc_reply_t amqp_login_inner(amqp_connection_state_t state,
   uint16_t server_heartbeat;
   amqp_rpc_reply_t result;
 
+  RABBIT_INFO("amqp_send_header(%08x)", (int)state);
   res = amqp_send_header(state);
+  RABBIT_INFO("amqp_send_header(%08x) res=%d", (int)state, res);
   if (AMQP_STATUS_OK != res) {
     goto error_res;
   }
@@ -1106,6 +1180,13 @@ static amqp_rpc_reply_t amqp_login_inner(amqp_connection_state_t state,
     if ((s->version_major != AMQP_PROTOCOL_VERSION_MAJOR)
         || (s->version_minor != AMQP_PROTOCOL_VERSION_MINOR)) {
       res = AMQP_STATUS_INCOMPATIBLE_AMQP_VERSION;
+      goto error_res;
+    }
+
+    res = amqp_table_clone(&s->server_properties, &state->server_properties,
+                           &state->properties_pool);
+
+    if (AMQP_STATUS_OK != res) {
       goto error_res;
     }
 
@@ -1206,7 +1287,6 @@ static amqp_rpc_reply_t amqp_login_inner(amqp_connection_state_t state,
   if (res < 0) {
     goto error_res;
   }
-
 
   {
     amqp_connection_tune_t *s = (amqp_connection_tune_t *) method.decoded;
