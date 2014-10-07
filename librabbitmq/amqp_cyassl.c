@@ -74,34 +74,50 @@ amqp_ssl_socket_send_inner(void *base, const void *buf, size_t len, int flags)
   flags |= MSG_NOSIGNAL;
 #endif
 
-  uint64_t startTimeNs;
+  uint64_t startTimeNs = amqp_get_monotonic_timestamp();
 
 start:
-  startTimeNs = amqp_get_monotonic_timestamp();
   RABBIT_INFO("send_inner: base=%08x, buf=%08x, len=%u flags=0x%08x", (uint32_t)base, (uint32_t)buf, len, flags);
   res = CyaSSL_send(self->ssl, buf_left, len_left, flags);
   uint64_t endTimeNs = amqp_get_monotonic_timestamp();
   RABBIT_INFO("send_inner: base=%08x, CyaSSL_send res=%d", (uint32_t)base, res);
   if (endTimeNs-startTimeNs > 7ULL*1000*1000*1000) {
-	  RABBIT_INFO( "send_inner-time %u sec", (uint32_t)((endTimeNs-startTimeNs)/1000/1000/1000));
+    RABBIT_INFO( "send_inner-time %u sec", (uint32_t)((endTimeNs-startTimeNs)/1000/1000/1000));
   }
+
+  uint32_t sendTimeMs = (uint32_t)((endTimeNs-startTimeNs)/1000/1000);
 
   if (res < 0) {
     self->last_error = CyaSSL_get_error(self->ssl,res);
-    if (EINTR == self->last_error) {
-      goto start;
-    } else {
-      res = AMQP_STATUS_SOCKET_ERROR;
-    }
-  } else {
-    if (res == len_left) {
+  }
+
+  if ((res>=0) && (res == len_left)) {
       self->last_error = 0;
       res = AMQP_STATUS_OK;
-    } else {
-      buf_left += res;
-      len_left -= res;
+
+  } else if (sendTimeMs>1000) {
+    logInfo("rabbit send to time=%ums res=%d last_error=%d len_left=%u/%u", sendTimeMs, res, self->last_error, len_left, len);
+    res = AMQP_STATUS_SOCKET_ERROR;
+
+  } else if (res < 0) {
+
+    if (SSL_ERROR_WANT_WRITE == self->last_error) {
+      logInfo("rabbit want_write time=%ums res=%d last_error=%d len_left=%u/%u", sendTimeMs, res, self->last_error, len_left, len);
       goto start;
+
+    } else if (EINTR == self->last_error) {
+      logInfo("rabbit EINTR time=%ums res=%d last_error=%d len_left=%u/%u", sendTimeMs, res, self->last_error, len_left, len);
+      goto start;
+
+    } else {
+      logInfo("rabbit CyaSSL_send time=%ums res=%d last_error=%d len_left=%u/%u", sendTimeMs, res, self->last_error, len_left, len);
+      res = AMQP_STATUS_SOCKET_ERROR;
     }
+
+  } else {
+    buf_left += res;
+    len_left -= res;
+    goto start;
   }
 
   RABBIT_INFO("send_inner: base=%08x, return res=%d", (uint32_t)base, (int)res);
