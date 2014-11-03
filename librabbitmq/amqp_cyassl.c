@@ -261,7 +261,7 @@ amqp_ssl_socket_open(void *base, const char *host, int port, struct timeval *tim
     logInfo("CyaSSL_UseMaxFragment success: %d", CONFIG_CYASSL_MAX_FRAGMENT_LENGTH);
   }
   else {
-    logInfo("CyaSSL_UseMaxFragment fail: %d", ret);
+    logError("CyaSSL_UseMaxFragment fail: %d", ret);
     self->last_error = AMQP_STATUS_SSL_ERROR;
     return self->last_error;
   }
