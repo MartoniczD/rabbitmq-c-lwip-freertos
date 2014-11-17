@@ -187,10 +187,10 @@ amqp_ssl_socket_close(void *base)
   RABBIT_INFO("socket_close: base=%08x", (uint32_t)base);
   int status = -1;
   struct amqp_ssl_socket_t *self = (struct amqp_ssl_socket_t *)base;
-  if (self->sockfd >= 0) {
-    status = amqp_os_socket_close(self->sockfd);
-  }
   if (self) {
+    if (self->sockfd >= 0) {
+      status = amqp_os_socket_close(self->sockfd);
+    }
     if (self->ssl) {
       CyaSSL_free(self->ssl);
     }
@@ -247,6 +247,11 @@ amqp_ssl_socket_open(void *base, const char *host, int port, struct timeval *tim
   RABBIT_INFO("socket_open: base=%08x host=%s port=%d timeout=%d.%06d", (uint32_t)base, host, port, timeout->tv_sec, timeout->tv_usec);
   struct amqp_ssl_socket_t *self = (struct amqp_ssl_socket_t *)base;
   self->last_error = AMQP_STATUS_OK;
+
+  if (NULL == self->ctx) {
+    self->last_error = AMQP_STATUS_SSL_ERROR;
+    return self->last_error;
+  }
 
   self->ssl = CyaSSL_new(self->ctx);
   if (NULL == self->ssl) {
