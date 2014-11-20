@@ -190,9 +190,16 @@ amqp_ssl_socket_close(void *base)
   if (self) {
     if (self->sockfd >= 0) {
       status = amqp_os_socket_close(self->sockfd);
+      if (status) {
+        logError("amqp_os_socket_close=%d",status);
+      }
+      // ALII-4689 only close a socket once.
+      self->sockfd = -1;
     }
     if (self->ssl) {
       CyaSSL_free(self->ssl);
+      // ALII-4689 only free a connection CYASSL object once
+      self->ssl = NULL;
     }
   }
   return status;
