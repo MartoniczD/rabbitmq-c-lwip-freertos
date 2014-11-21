@@ -61,11 +61,24 @@ CYASSL *amqp_ssl_socket_get_cyassl_session_object(amqp_socket_t *base)
   return self->ssl;
 }
 
+static inline ssize_t amqp_ssl_socket_are_we_open(struct amqp_ssl_socket_t *self)
+{
+  ssize_t res = AMQP_STATUS_INVALID_PARAMETER;
+  if ((self) && (self->sockfd >= 0) && (self->ssl)) {
+    res = AMQP_STATUS_OK;
+  }
+  return res;
+}
+
 static ssize_t
 amqp_ssl_socket_send_inner(void *base, const void *buf, size_t len, int flags)
 {
   struct amqp_ssl_socket_t *self = (struct amqp_ssl_socket_t *)base;
-  ssize_t res;
+
+  ssize_t res = amqp_ssl_socket_are_we_open(self);
+  if (AMQP_STATUS_OK != res) {
+    return res;
+  }
 
   const char *buf_left = buf;
   ssize_t len_left = len;
@@ -153,25 +166,30 @@ static ssize_t
 amqp_ssl_socket_recv(void *base, void *buf, size_t len, int flags)
 {
   struct amqp_ssl_socket_t *self = (struct amqp_ssl_socket_t *)base;
-  ssize_t ret;
+
+  ssize_t res = amqp_ssl_socket_are_we_open(self);
+  if (AMQP_STATUS_OK != res) {
+    return res;
+  }
+
 
 start:
   RABBIT_INFO("socket_recv: base=%08x, buf=%08x, len=%u flags=0x%08x", (uint32_t)base, (uint32_t)buf, len, flags);
-  ret = CyaSSL_recv(self->ssl, buf, len, flags);
+  res = CyaSSL_recv(self->ssl, buf, len, flags);
   RABBIT_INFO("socket_recv: base=%08x, CyaSSL_recv ret=%d", (uint32_t)base, ret);
 
-  if (0 > ret) {
-    self->last_error = CyaSSL_get_error(self->ssl,ret);
+  if (0 > res) {
+    self->last_error = CyaSSL_get_error(self->ssl,res);
     if (EINTR == self->last_error) {
       goto start;
     } else {
-      ret = AMQP_STATUS_SOCKET_ERROR;
+      res = AMQP_STATUS_SOCKET_ERROR;
     }
-  } else if (0 == ret) {
-    ret = AMQP_STATUS_CONNECTION_CLOSED;
+  } else if (0 == res) {
+    res = AMQP_STATUS_CONNECTION_CLOSED;
   }
 
-  return ret;
+  return res;
 }
 
 static int
@@ -227,7 +245,12 @@ static int
 amqp_ssl_socket_error(void *base)
 {
   struct amqp_ssl_socket_t *self = (struct amqp_ssl_socket_t *)base;
-  return self->last_error;
+
+  if (self) {
+    return self->last_error;
+  } else {
+    return AMQP_STATUS_INVALID_PARAMETER;
+  }
 }
 
 #ifndef CONFIG_RABBITMQ_TINY_EMBEDDED_ENA
@@ -253,10 +276,15 @@ amqp_ssl_socket_open(void *base, const char *host, int port, struct timeval *tim
 {
   RABBIT_INFO("socket_open: base=%08x host=%s port=%d timeout=%d.%06d", (uint32_t)base, host, port, timeout->tv_sec, timeout->tv_usec);
   struct amqp_ssl_socket_t *self = (struct amqp_ssl_socket_t *)base;
+
+  if (NULL == self) {
+    return AMQP_STATUS_INVALID_PARAMETER;
+  }
+
   self->last_error = AMQP_STATUS_OK;
 
   if (NULL == self->ctx) {
-    self->last_error = AMQP_STATUS_SSL_ERROR;
+    self->last_error = AMQP_STATUS_INVALID_PARAMETER;
     return self->last_error;
   }
 
@@ -276,7 +304,7 @@ amqp_ssl_socket_open(void *base, const char *host, int port, struct timeval *tim
   int status = CyaSSL_connect(self->ssl);
   logDebug("%d=CyaSSL_connect",status);
   if (SSL_SUCCESS != status) {
-    logOffNominal( "CyaSSL_connect failed = %d", status );
+    logOffNominal("CyaSSL_connect failed = %d", status);
     self->last_error = AMQP_STATUS_SSL_ERROR;
     return self->last_error;
   }
