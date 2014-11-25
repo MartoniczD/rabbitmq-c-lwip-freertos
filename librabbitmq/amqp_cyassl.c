@@ -176,7 +176,7 @@ amqp_ssl_socket_recv(void *base, void *buf, size_t len, int flags)
 start:
   RABBIT_INFO("socket_recv: base=%08x, buf=%08x, len=%u flags=0x%08x", (uint32_t)base, (uint32_t)buf, len, flags);
   res = CyaSSL_recv(self->ssl, buf, len, flags);
-  RABBIT_INFO("socket_recv: base=%08x, CyaSSL_recv ret=%d", (uint32_t)base, ret);
+  RABBIT_INFO("socket_recv: base=%08x, CyaSSL_recv ret=%d", (uint32_t)base, res);
 
   if (0 > res) {
     self->last_error = CyaSSL_get_error(self->ssl,res);
@@ -288,12 +288,14 @@ amqp_ssl_socket_open(void *base, const char *host, int port, struct timeval *tim
     return self->last_error;
   }
 
+  RABBIT_INFO("Calling CyaSSL_new\n");
   self->ssl = CyaSSL_new(self->ctx);
   if (NULL == self->ssl) {
     self->last_error = AMQP_STATUS_SSL_ERROR;
     return self->last_error;
   }
 
+  RABBIT_INFO("Calling amqp_open_socket_noblock");
   self->sockfd = amqp_open_socket_noblock(host, port, timeout);
   if (0 > self->sockfd) {
     self->last_error = - self->sockfd;
@@ -301,6 +303,7 @@ amqp_ssl_socket_open(void *base, const char *host, int port, struct timeval *tim
   }
   CyaSSL_set_fd(self->ssl, self->sockfd);
 
+  RABBIT_INFO("Calling CyaSSL_connect");
   int status = CyaSSL_connect(self->ssl);
   logDebug("%d=CyaSSL_connect",status);
   if (SSL_SUCCESS != status) {

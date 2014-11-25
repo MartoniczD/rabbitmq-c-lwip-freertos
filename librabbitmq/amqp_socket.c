@@ -108,6 +108,7 @@ amqp_os_socket_socket(int domain, int type, int protocol)
   int flags;
 #endif
 
+  RABBIT_INFO("Creating socket");
   int s = socket(domain, type, protocol);
   RABBIT_INFO("Created socket: %d", s);
   if (s < 0) {
@@ -218,10 +219,6 @@ amqp_os_socket_close(int sockfd)
   return closesocket(sockfd);
 #else
 
-
-  RABBIT_INFO("todo rms setting fd to nonblocking prior to close: %d", sockfd);
-  amqp_os_socket_setsockblock(sockfd,0);
-  RABBIT_INFO("Calling close on: %d", sockfd);
   return close(sockfd);
 #endif
 }
